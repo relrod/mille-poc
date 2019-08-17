@@ -1,0 +1,4 @@
+[mille]
+aws_key = ASDF
+aws_secret = ABCDEF
+user_pool = us-east-1_f00bar
