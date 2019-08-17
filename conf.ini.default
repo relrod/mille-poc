@@ -2,3 +2,6 @@
 aws_key = ASDF
 aws_secret = ABCDEF
 user_pool = us-east-1_f00bar
+passwd_file=/home/rick/dev/fedora/auth/mille-poc/out/passwd
+shadow_file=/home/rick/dev/fedora/auth/mille-poc/out/shadow
+group_file=/home/rick/dev/fedora/auth/mille-poc/out/group

@@ -49,7 +49,7 @@ class MilleClient():
 
     def generate_group_text(self, gid, name):
         linesuffix = '%s:x:%s:' % (name, uid)
-        text = '=%s %s\n0%i %s\n.%s %s' % (
+        text = '=%s %s\n0%i %s\n.%s %s\n' % (
             gid,
             linesuffix,
             self.group_i,
@@ -90,27 +90,30 @@ if __name__ == '__main__':
     for group in mc.groups.keys():
         mc.store_users_in_group(group)
 
-    # User-groups
-    for username, user in mc.users.items():
-        if username.startswith('g:'):
-            continue
-        # There has got to be a better way to do this:
-        uid = get_uid(user)
-        if not uid:
-            continue
-        print(mc.generate_group_text(int(uid), username))
+    # Groups
 
-    # Actual groups.
-    # The 'gid' comes from the 'uid' of the *user* called 'g:groupname'
-    for groupname, group in mc.groups.items():
-        g_user = mc.users.get('g:%s' % groupname)
-        if not g_user:
-            sys.stderr.write(
-                "WARNING! No user `%s' found: Could not look up group gid.\n" %
-                'g:%s' % groupname)
-            continue
-        # There has got to be a better way to do this:
-        gid = get_uid(g_user)
-        if not gid:
-            continue
-        print(mc.generate_group_text(int(gid), groupname))
+    with open(config['mille']['group_file'], 'w') as f:
+        # User-groups
+        for username, user in mc.users.items():
+            if username.startswith('g:'):
+                continue
+            # There has got to be a better way to do this:
+            uid = get_uid(user)
+            if not uid:
+                continue
+            f.write(mc.generate_group_text(int(uid), username))
+
+        # Actual groups.
+        # The 'gid' comes from the 'uid' of the *user* called 'g:groupname'
+        for groupname, group in mc.groups.items():
+            g_user = mc.users.get('g:%s' % groupname)
+            if not g_user:
+                sys.stderr.write(
+                    "WARNING! No user `%s' found: Could not look up group gid.\n" %
+                    'g:%s' % groupname)
+                continue
+            # There has got to be a better way to do this:
+            gid = get_uid(g_user)
+            if not gid:
+                continue
+            f.write(mc.generate_group_text(int(gid), groupname))
