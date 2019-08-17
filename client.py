@@ -5,16 +5,21 @@ from collections import defaultdict
 import configparser
 import sys
 
-groups_with_access_to_this_system = ['sysadmin-apples', 'fruit-sig']
-
 class MilleClient():
     def __init__(self, key_id, key_secret, pool):
         self.client = boto3.client(
             'cognito-idp',
             aws_access_key_id=key_id,
             aws_secret_access_key=key_secret)
+        # groupname: [user]
         self.groups = {}
+
+        # username: user
         self.users = {}
+
+        # username: [groupname]
+        self.users_groups = defaultdict(set)
+
         self.pool = pool
 
         # Global state for generating passwd/group/shadow dbs.
@@ -44,6 +49,7 @@ class MilleClient():
                 if user['Enabled']:
                     self.groups[group].append(user)
                     self.users[user['Username']] = user
+                    self.users_groups[user['Username']].add(group)
                     if user['Username'] not in self.users:
                         self.users[user['Username']] = user
 
@@ -59,20 +65,56 @@ class MilleClient():
         self.group_i += 1
         return text
 
-def get_uid(user):
-    uid_attr = list(
+    def generate_user_text(self, uid, username, name, shell, home_dir):
+        linesuffix = '%s:x:%s:%s:%s:%s:%s' % (
+            username,
+            uid,
+            uid,
+            name,
+            home_dir,
+            shell)
+        text = '=%s %s\n0%i %s\n.%s %s\n' % (
+            uid,
+            linesuffix,
+            self.passwd_i,
+            linesuffix,
+            username,
+            linesuffix)
+        self.passwd_i += 1
+        return text
+
+    def generate_shadow_text(self, uid, username):
+        linesuffix = '%s:*::::7:::' % username
+        text = '=%s %s\n0%i %s\n.%s %s\n' % (
+            uid,
+            linesuffix,
+            self.shadow_i,
+            linesuffix,
+            username,
+            linesuffix)
+        self.shadow_i += 1
+        return text
+
+def get_attr(user, attr):
+    attr_filter = list(
         filter(
-            lambda x: x['Name'] == 'custom:uid',
+            lambda x: x['Name'] == attr,
             user['Attributes']))
-    if len(uid_attr) == 0:
+    if len(attr_filter) == 0:
         sys.stderr.write(
-            'WARNING! No uid found for %s\n' % user['Username'])
+            'WARNING! No %s attribute found for %s\n' %
+            (attr, user['Username']))
         return None
-    return uid_attr[0]['Value']
+    return attr_filter[0]['Value']
     
 if __name__ == '__main__':
     config = configparser.ConfigParser()
     config.read('conf.ini')
+
+    # TODO: use .get or whatever to make this fail better
+    groups_with_access = set(
+        config['mille']['groups_with_access_to_this_system'].split(','))
+
     mc = MilleClient(
         config['mille']['aws_key'],
         config['mille']['aws_secret'],
@@ -98,7 +140,7 @@ if __name__ == '__main__':
             if username.startswith('g:'):
                 continue
             # There has got to be a better way to do this:
-            uid = get_uid(user)
+            uid = get_attr(user, 'custom:uid')
             if not uid:
                 continue
             f.write(mc.generate_group_text(int(uid), username))
@@ -113,7 +155,50 @@ if __name__ == '__main__':
                     'g:%s' % groupname)
                 continue
             # There has got to be a better way to do this:
-            gid = get_uid(g_user)
+            gid = get_attr(g_user, 'custom:uid')
             if not gid:
                 continue
             f.write(mc.generate_group_text(int(gid), groupname))
+
+    with open(config['mille']['passwd_file'], 'w') as f:
+        for username, user in mc.users.items():
+            if username.startswith('g:'):
+                continue
+            uid = get_attr(user, 'custom:uid')
+            name = get_attr(user, 'name')
+            if not uid:
+                continue
+
+            # If there's at least one group in common between the user's groups
+            # and the groups with access to the system, then we can create the
+            # passwd entry for the user.
+            if len(
+                    groups_with_access.intersection(
+                        mc.users_groups[username])) > 0:
+                shell = config['mille']['shell']
+                home_dir = config['mille']['home_dir_prefix'] + username
+                f.write(mc.generate_user_text(
+                    int(uid),
+                    username,
+                    name,
+                    shell,
+                    home_dir))
+
+    with open(config['mille']['shadow_file'], 'w') as f:
+        for username, user in mc.users.items():
+            if username.startswith('g:'):
+                continue
+            uid = get_attr(user, 'custom:uid')
+            name = get_attr(user, 'name')
+            if not uid:
+                continue
+
+            # If there's at least one group in common between the user's groups
+            # and the groups with access to the system, then we can create the
+            # shadow entry for the user.
+            if len(
+                    groups_with_access.intersection(
+                        mc.users_groups[username])) > 0:
+                f.write(mc.generate_shadow_text(
+                    int(uid),
+                    username))
